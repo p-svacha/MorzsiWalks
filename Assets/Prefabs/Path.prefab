@@ -145,9 +145,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 69e0f834b6e571842ad5ea254c5c1d22, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  Id: 0
   StartNode: {fileID: 0}
   EndNode: {fileID: 0}
+  Direction: 0
+  Priority: 0
+  Length: 0
   Line: {fileID: 6117647464832232213}
+  ArrowheadPrefab: {fileID: 6388074185130146149, guid: 39834aa285be2f349927011c854f22df, type: 3}
+  Arrowhead: {fileID: 0}
   Collider: {fileID: 4476011942855971824}
 --- !u!60 &4476011942855971824
 PolygonCollider2D:

@@ -8,3 +8,9 @@ Version 1.1
 - Added "Simulate Route" function
 - Vastly improved route generation to fit set time more and avoid revisiting same areas and loops.
 - Improved script for scraping images of google maps
+
+Version 1.2
+----------------------
+- Added path priorities (to nudge route generation to prefer/avoid certain paths)
+- Added path direction types (one-way paths)
+- Improved route generation UX

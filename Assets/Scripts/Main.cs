@@ -19,6 +19,8 @@ public class Main : MonoBehaviour
     public MenuButton ViewButton;
     public MenuButton AddNodeButton;
     public MenuButton AddPathButton;
+    public MenuButton ChangePathPriorityButton;
+    public MenuButton ChangePathDirectionButton;
     public MenuButton RemoveNodeButton;
     public MenuButton RemovePathButton;
 
@@ -42,7 +44,6 @@ public class Main : MonoBehaviour
     [Header("Prefabs")]
     public Node NodePrefab;
     public Path PathPrefab;
-    public SpriteRenderer ArrowheadPrefab;
 
     private int NextNodeId;
     public Dictionary<int, Node> Nodes;
@@ -58,11 +59,17 @@ public class Main : MonoBehaviour
 
     private const float DESIRED_ROUTE_LENGTH_MAX_DEVIATION = 0.3f; // % value how much the length of a generated route may deviate from the desired length (i.e. 30% on 20 minutes would accept 14-26 minutes)
 
+    public static Main Singleton;
+
     private void Start()
     {
+        Singleton = GameObject.Find("Main").GetComponent<Main>();
+
         ViewButton.Button.onClick.AddListener(() => SelectMode(Mode.View));
         AddNodeButton.Button.onClick.AddListener(() => SelectMode(Mode.AddNode));
         AddPathButton.Button.onClick.AddListener(() => SelectMode(Mode.AddPathStart));
+        ChangePathPriorityButton.Button.onClick.AddListener(() => SelectMode(Mode.ChangePathPriority));
+        ChangePathDirectionButton.Button.onClick.AddListener(() => SelectMode(Mode.ChangePathDirection));
         RemoveNodeButton.Button.onClick.AddListener(() => SelectMode(Mode.RemoveNode));
         RemovePathButton.Button.onClick.AddListener(() => SelectMode(Mode.RemovePath));
 
@@ -86,7 +93,7 @@ public class Main : MonoBehaviour
     private void GenerateAndHighlightRoute(Node start, Node end, int targetLength)
     {
         // Unhighlight old route
-        UnhighlightRoute();
+        UnhighlightEverything();
 
         // Generate route
         Route route = GenerateRoute(start, end, targetLength);
@@ -140,7 +147,7 @@ public class Main : MonoBehaviour
                         Debug.Log("Excluding path " + path.Key.Id + " because we already walked that path in the same direction.");
                         continue;
                     }
-                    if(chosenPaths.Where(x => x.Key == path.Key && (chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit || remainingLength > maxLengthDeviation + 5f)).Count() > 0) // Except for the first few, can't take a path twice (no matter what direction)
+                    if(chosenPaths.Where(x => x.Key == path.Key && (chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit || remainingLength > maxLengthDeviation + 3f)).Count() > 0) // Except for the first few, can't take a path twice (no matter what direction)
                     {
                         Debug.Log("Excluding path " + path.Key.Id + " because we already walked that path (and it's not one of the first " + numFirstPathsAllowedToRevisit + " paths).");
                         continue;
@@ -161,8 +168,7 @@ public class Main : MonoBehaviour
                         continue;
                     }
 
-                    float probability = 1f; // default probability
-                    if (routeNodes.Contains(path.Value)) probability = 0.1f; // low probability for nodes we already visited
+                    float probability = GetPriorityValue(path.Key.Priority);
 
                     nextPathCandidates.Add(path, probability); // add to candidates
                 }
@@ -235,30 +241,42 @@ public class Main : MonoBehaviour
         return route;
     }
 
-    private void HighlightRoute(Route route)
+    private float GetPriorityValue(PathPriority prio)
     {
-        HighlightedRoute = route;
-        HighlightedRoute.Highlight(this);
-
-        RouteText.text = "Highlighted route has an estimated length of " + HighlightedRoute.GetLengthString() + ".";
+        return prio switch
+        {
+            PathPriority.VeryLow => 0.5f,
+            PathPriority.Low => 0.75f,
+            PathPriority.Medium => 1f,
+            PathPriority.High => 1.25f,
+            PathPriority.VeryHigh => 1.5f,
+            _ => throw new System.Exception("prio not handled")
+        };
     }
 
-    private void UnhighlightRoute()
+    private T GetWeightedRandomElement<T>(Dictionary<T, float> weightDictionary)
     {
-        if (HighlightedRoute == null) return;
+        if (weightDictionary.Any(x => x.Value < 0)) throw new System.Exception("Negative probability found for " + weightDictionary.First(x => x.Value < 0).Key.ToString());
+        float probabilitySum = weightDictionary.Sum(x => x.Value);
+        float rng = Random.Range(0, probabilitySum);
+        float tmpSum = 0;
+        T chosenValue = default(T);
+        bool resultFound = false;
+        foreach (KeyValuePair<T, float> kvp in weightDictionary)
+        {
+            tmpSum += kvp.Value;
+            if (rng < tmpSum)
+            {
+                chosenValue = kvp.Key;
+                resultFound = true;
+                break;
+            }
+        }
 
-        HighlightedRoute.Unhighlight(this);
-        HighlightedRoute = null;
+        if (resultFound) return chosenValue;
 
-        RouteText.text = "";
-    }
-
-    private void UnhighlightEverything()
-    {
-        UnhighlightRoute();
-
-        foreach (Node node in Nodes.Values) node.SetColor(DefaultColor);
-        foreach (Path path in Paths.Values) path.SetColor(DefaultColor);
+        if (probabilitySum == 0) throw new System.Exception("Can't return anything of " + typeof(T).FullName + " because all probabilities are 0");
+        throw new System.Exception();
     }
 
     /// <summary>
@@ -321,6 +339,28 @@ public class Main : MonoBehaviour
                 }
             }
         }
+    }
+
+    #endregion
+
+    #region Display
+
+    private void HighlightRoute(Route route)
+    {
+        HighlightedRoute = route;
+        HighlightedRoute.Highlight();
+
+        RouteText.text = "Highlighted route has an estimated length of " + HighlightedRoute.GetLengthString() + ".";
+    }
+
+    private void UnhighlightEverything()
+    {
+        HighlightedRoute = null;
+        SimulatedRoute = null;
+        RouteText.text = "";
+
+        foreach (Node node in Nodes.Values) node.SetColor(DefaultColor);
+        foreach (Path path in Paths.Values) path.ResetDisplay();
     }
 
     #endregion
@@ -405,9 +445,11 @@ public class Main : MonoBehaviour
                     if (hoveredNode != null)
                     {
                         CurrentRouteStart = hoveredNode;
+                        HighlightRoute(new Route(new List<Node>() { CurrentRouteStart }, new List<Path>()));
                         SelectMode(Mode.GenerateRouteEnd);
                     }
                 }
+                if (Input.GetMouseButtonDown(1)) UnhighlightEverything();
                 break;
 
             case Mode.GenerateRouteEnd:
@@ -419,6 +461,11 @@ public class Main : MonoBehaviour
                         CurrentRouteStart = null;
                         SelectMode(Mode.GenerateRouteStart);
                     }
+                }
+                if(Input.GetMouseButtonDown(1))
+                {
+                    UnhighlightEverything();
+                    SelectMode(Mode.GenerateRouteStart);
                 }
                 break;
 
@@ -452,6 +499,22 @@ public class Main : MonoBehaviour
                     SelectMode(Mode.SimulateRouteStart);
                 }
                 break;
+
+            case Mode.ChangePathDirection:
+                if (Input.GetMouseButtonDown(0))
+                    if (hoveredPath != null)
+                        hoveredPath.CycleDirection();
+                break;
+
+            case Mode.ChangePathPriority:
+                if (Input.GetMouseButtonDown(0))
+                    if (hoveredPath != null)
+                        hoveredPath.IncreasePriority();
+
+                if (Input.GetMouseButtonDown(1))
+                    if (hoveredPath != null)
+                        hoveredPath.DecreasePriority();
+                break;
         }
     }
 
@@ -483,22 +546,16 @@ public class Main : MonoBehaviour
         Destroy(path.gameObject);
         Paths.Remove(path.Id);
 
-        path.StartNode.ConnectedPaths.Remove(path);
-        path.EndNode.ConnectedPaths.Remove(path);
+        if (path.StartNode.ConnectedPaths.ContainsKey(path)) path.StartNode.ConnectedPaths.Remove(path);
+        if (path.EndNode.ConnectedPaths.ContainsKey(path)) path.EndNode.ConnectedPaths.Remove(path);
 
         UnhighlightEverything();
-    }
-
-    private void RemoveSimulatedRoute()
-    {
-        UnhighlightRoute();
-        SimulatedRoute = null;
     }
 
     public void SelectMode(Mode mode)
     {
         if (CurrentPath != null && mode != Mode.AddPath) RemoveCurrentPath();
-        if (SimulatedRoute != null && mode != Mode.SimulateRoute) RemoveSimulatedRoute();
+        if (SimulatedRoute != null && mode != Mode.SimulateRoute) UnhighlightEverything();
 
         GetButtonForMode(Mode).Unselect();
         Mode = mode;
@@ -514,6 +571,8 @@ public class Main : MonoBehaviour
             Mode.AddNode => AddNodeButton,
             Mode.AddPath => AddPathButton,
             Mode.AddPathStart => AddPathButton,
+            Mode.ChangePathPriority => ChangePathPriorityButton,
+            Mode.ChangePathDirection => ChangePathDirectionButton,
             Mode.RemoveNode => RemoveNodeButton,
             Mode.RemovePath => RemovePathButton,
             Mode.GenerateRouteStart => GenerateRouteButton,
@@ -532,10 +591,12 @@ public class Main : MonoBehaviour
             Mode.AddNode => "Click anywhere to place a node.",
             Mode.AddPathStart => "Click on a node where the new path should start.",
             Mode.AddPath => "Click anywhere to continue the path.\nClick on a node other than the start node to end the path.\nRight click to stop.",
+            Mode.ChangePathPriority => "Leftclick on a path to increase its priority.\nRightclick on a path to decrease its priority.",
+            Mode.ChangePathDirection => "Click on a path to change which directions you are allowed to traverse it.",
             Mode.RemoveNode => "Click on a node with no connections to remove it.",
             Mode.RemovePath => "Click on a path to remove it.",
-            Mode.GenerateRouteStart => "Click on a node that will be the start point of the route.",
-            Mode.GenerateRouteEnd => "Click on a node that will be the end point of the route.",
+            Mode.GenerateRouteStart => "Click on a node that will be the start point of the route.\nRightclick to remove previous route.",
+            Mode.GenerateRouteEnd => "Click on a node that will be the end point of the route.\nRightclick to abort.",
             Mode.SimulateRouteStart => "Click on a node where the route starts.",
             Mode.SimulateRoute => "Click on a node connected to the previous node to continue the route.\nRightclick to remove current route.",
             _ => throw new System.Exception("Mode " + mode.ToString() + " not handled.")
@@ -543,6 +604,8 @@ public class Main : MonoBehaviour
     }
 
     #endregion
+
+    #region Save / Load
 
     private void Clear()
     {
@@ -552,8 +615,6 @@ public class Main : MonoBehaviour
         Nodes.Clear();
         Paths.Clear();
     }
-
-    #region Save / Load
 
     private void LoadMap(MapData mapData)
     {
@@ -576,9 +637,6 @@ public class Main : MonoBehaviour
             Path newPath = Instantiate(PathPrefab);
             newPath.Init(this, data);
             Paths.Add(newPath.Id, newPath);
-
-            newPath.StartNode.ConnectedPaths.Add(newPath, newPath.EndNode);
-            if(newPath.StartNode != newPath.EndNode) newPath.EndNode.ConnectedPaths.Add(newPath, newPath.StartNode);
         }
 
         NextNodeId = Nodes.Keys.Count == 0 ? 1 : Nodes.Keys.Max() + 1;
@@ -612,29 +670,4 @@ public class Main : MonoBehaviour
     }
 
     #endregion
-
-    private T GetWeightedRandomElement<T>(Dictionary<T, float> weightDictionary)
-    {
-        if (weightDictionary.Any(x => x.Value < 0)) throw new System.Exception("Negative probability found for " + weightDictionary.First(x => x.Value < 0).Key.ToString());
-        float probabilitySum = weightDictionary.Sum(x => x.Value);
-        float rng = Random.Range(0, probabilitySum);
-        float tmpSum = 0;
-        T chosenValue = default(T);
-        bool resultFound = false;
-        foreach (KeyValuePair<T, float> kvp in weightDictionary)
-        {
-            tmpSum += kvp.Value;
-            if (rng < tmpSum)
-            {
-                chosenValue = kvp.Key;
-                resultFound = true;
-                break;
-            }
-        }
-
-        if (resultFound) return chosenValue;
-
-        if (probabilitySum == 0) throw new System.Exception("Can't return anything of " + typeof(T).FullName + " because all probabilities are 0");
-        throw new System.Exception();
-    }
 }

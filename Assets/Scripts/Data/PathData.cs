@@ -10,4 +10,6 @@ public class PathData
     public int EndNodeId { get; set; }
     public List<float> PointsX { get; set; }
     public List<float> PointsY { get; set; }
+    public PathDirection Direction { get; set; }
+    public PathPriority Priority { get; set; }
 }

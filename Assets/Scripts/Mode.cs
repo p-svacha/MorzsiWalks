@@ -8,10 +8,12 @@ public enum Mode
     AddNode,
     AddPathStart,
     AddPath,
+    ChangePathDirection,
+    ChangePathPriority,
     RemoveNode,
     RemovePath,
     GenerateRouteStart,
     GenerateRouteEnd,
     SimulateRouteStart,
-    SimulateRoute
+    SimulateRoute,
 }
