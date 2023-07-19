@@ -17,7 +17,14 @@ public class Route
     {
         Nodes = nodes;
         Paths = paths;
-        Length = paths.Sum(x => x.Length);
+        Length = Paths.Sum(x => x.Length);
+    }
+
+    public void AddPath(Path path, Node targetNode)
+    {
+        Nodes.Add(targetNode);
+        Paths.Add(path);
+        Length = Paths.Sum(x => x.Length);
     }
 
     public void Highlight(Main main)
@@ -57,5 +64,16 @@ public class Route
         // Destroy direction arrows
         foreach (GameObject arrow in DirectionArrows) GameObject.Destroy(arrow);
         DirectionArrows.Clear();
+    }
+
+    public string GetLengthString()
+    {
+        int totalSeconds = (int)(Length * 60);  // Convert minutes to seconds
+        int minutesPart = totalSeconds / 60;     // Extract the minutes part
+        int secondsPart = totalSeconds % 60;     // Extract the seconds part
+
+        string formattedTime = $"{minutesPart:00}:{secondsPart:00}";  // Format the time as "mm:ss"
+
+        return formattedTime;
     }
 }

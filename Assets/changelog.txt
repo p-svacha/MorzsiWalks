@@ -1,0 +1,10 @@
+Version 1.0
+----------------------
+- Initial version that allows adding/removing nodes & paths and has basic route generation.
+
+Version 1.1
+----------------------
+- Expanded map
+- Added "Simulate Route" function
+- Vastly improved route generation to fit set time more and avoid revisiting same areas and loops.
+- Improved script for scraping images of google maps

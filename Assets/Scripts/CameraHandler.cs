@@ -41,7 +41,7 @@ public class CameraHandler : MonoBehaviour
     private void Start()
     {
         Camera = GetComponent<Camera>();
-        SetBounds(-100, -100, 100, 100);
+        SetBounds(-300, -300, 300, 300);
     }
 
 

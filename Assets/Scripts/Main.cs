@@ -24,6 +24,7 @@ public class Main : MonoBehaviour
 
     public TMP_InputField RouteLengthInput;
     public MenuButton GenerateRouteButton;
+    public MenuButton SimulateRouteButton;
     public MenuButton UnhighlightRouteButton;
 
     public MenuButton SaveMapButton;
@@ -50,9 +51,12 @@ public class Main : MonoBehaviour
     public Dictionary<int, Path> Paths;
 
     private Route HighlightedRoute;
+    private Route SimulatedRoute;
 
     private Path CurrentPath;
     private Node CurrentRouteStart;
+
+    private const float DESIRED_ROUTE_LENGTH_MAX_DEVIATION = 0.3f; // % value how much the length of a generated route may deviate from the desired length (i.e. 30% on 20 minutes would accept 14-26 minutes)
 
     private void Start()
     {
@@ -61,9 +65,13 @@ public class Main : MonoBehaviour
         AddPathButton.Button.onClick.AddListener(() => SelectMode(Mode.AddPathStart));
         RemoveNodeButton.Button.onClick.AddListener(() => SelectMode(Mode.RemoveNode));
         RemovePathButton.Button.onClick.AddListener(() => SelectMode(Mode.RemovePath));
+
         GenerateRouteButton.Button.onClick.AddListener(() => SelectMode(Mode.GenerateRouteStart));
+        SimulateRouteButton.Button.onClick.AddListener(() => SelectMode(Mode.SimulateRouteStart));
+        UnhighlightRouteButton.Button.onClick.AddListener(UnhighlightEverything);
+
         SaveMapButton.Button.onClick.AddListener(() => SaveMap(CurrentMap));
-        UnhighlightRouteButton.Button.onClick.AddListener(UnhighlightRoute);
+        
 
         Nodes = new Dictionary<int, Node>();
         Paths = new Dictionary<int, Path>();
@@ -89,75 +97,140 @@ public class Main : MonoBehaviour
 
     private Route GenerateRoute(Node start, Node end, int targetLength)
     {
+        float maxLengthDeviation = targetLength * DESIRED_ROUTE_LENGTH_MAX_DEVIATION;
+        float minLength = targetLength - maxLengthDeviation;
+        float maxLength = targetLength + maxLengthDeviation;
+
+        // The first x paths and nodes are allowed to be visited twice
+        int numFirstPathsAllowedToRevisit = 2 + (targetLength / 30);
+
         // Calculate shortest route to start for every node
         foreach (Node node in Nodes.Values) node.MinLengthToEnd = node.ShortestPaths[end];
 
         // Generate route
-        List<Node> routeNodes = new List<Node>();
-        List<Path> routePaths = new List<Path>();
-        float remainingLength = targetLength;
-        Node currentNode = start;
-        routeNodes.Add(currentNode);
-        int counter = 0;
+        Route route = null;
 
-
-        while((routeNodes.Last() != end || routeNodes.Count <= 1) && counter < 200)
+        while (route == null || (start.MinLengthToEnd < maxLength && (route.Length < minLength || route.Length > maxLength)))
         {
-            counter++;
+            List<Node> routeNodes = new List<Node>();
+            List<Path> routePaths = new List<Path>();
+            float remainingLength = targetLength;
+            Node currentNode = start;
+            routeNodes.Add(currentNode);
+            int counter = 0;
+            bool routeIsInvalid = false;
 
-            // Identify candidates and their probabilities for the next path
-            Dictionary<KeyValuePair<Path, Node>, float> nextPathCandidates = new Dictionary<KeyValuePair<Path, Node>, float>();
-            foreach(var path in currentNode.ConnectedPaths)
+            List<KeyValuePair<Path, Node>> chosenPaths = new List<KeyValuePair<Path, Node>>();
+
+            while ((routeNodes.Last() != end || routeNodes.Count <= 1) && counter < 200)
             {
-                if (routePaths.Count > 0 && path.Key == routePaths.Last())// Can't return the exact path we came from
+                counter++;
+
+                // Identify candidates and their probabilities for the next path
+                Dictionary<KeyValuePair<Path, Node>, float> nextPathCandidates = new Dictionary<KeyValuePair<Path, Node>, float>();
+                foreach (var path in currentNode.ConnectedPaths)
                 {
-                    Debug.Log("Excluding path " + path.Key.Id + " because it's the path we came from.");
-                    continue;
-                }
-                if (path.Value.MinLengthToEnd > remainingLength - path.Key.Length) // Can't get back in time
-                {
-                    Debug.Log("Excluding path " + path.Key.Id + " because we couldn't get home in time.");
-                    continue;
-                }
-                if (remainingLength > 2f && path.Value == end) // Too early to end
-                {
-                    Debug.Log("Excluding path " + path.Key.Id + " because then the path would end while too short.");
-                    continue;
+                    if (routePaths.Count > 0 && path.Key == routePaths.Last())// Can't return the exact path we came from
+                    {
+                        Debug.Log("Excluding path " + path.Key.Id + " because it's the path we came from.");
+                        continue;
+                    }
+                    if(chosenPaths.Where(x => x.Key == path.Key && x.Value == path.Value).Count() > 0) // Can't take the same path twice in the same direction
+                    {
+                        Debug.Log("Excluding path " + path.Key.Id + " because we already walked that path in the same direction.");
+                        continue;
+                    }
+                    if(chosenPaths.Where(x => x.Key == path.Key && (chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit || remainingLength > maxLengthDeviation + 5f)).Count() > 0) // Except for the first few, can't take a path twice (no matter what direction)
+                    {
+                        Debug.Log("Excluding path " + path.Key.Id + " because we already walked that path (and it's not one of the first " + numFirstPathsAllowedToRevisit + " paths).");
+                        continue;
+                    }
+                    if (chosenPaths.Where(x => x.Value == path.Value && chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit).Count() > 0) // Except for the first few, can't visit the same node twice
+                    {
+                        Debug.Log("Excluding path " + path.Key.Id + " because it would lead to a node that we already visited (and it's not one of the first " + (numFirstPathsAllowedToRevisit + 1) + " nodes).");
+                        continue;
+                    }
+                    if (path.Value.MinLengthToEnd > remainingLength - path.Key.Length) // Can't get back in time
+                    {
+                        Debug.Log("Excluding path " + path.Key.Id + " because we couldn't get home in time.");
+                        continue;
+                    }
+                    if (remainingLength - path.Key.Length > maxLengthDeviation && path.Value == end) // Too early to end
+                    {
+                        Debug.Log("Excluding path " + path.Key.Id + " because then the path would end while too short.");
+                        continue;
+                    }
+
+                    float probability = 1f; // default probability
+                    if (routeNodes.Contains(path.Value)) probability = 0.1f; // low probability for nodes we already visited
+
+                    nextPathCandidates.Add(path, probability); // add to candidates
                 }
 
-                float probability = 1f; // default probability
-                if (routeNodes.Contains(path.Value)) probability = 0.1f; // low probability for nodes we already visited
+                // Chose next path
+                KeyValuePair<Path, Node> chosenNextPath;
 
-                nextPathCandidates.Add(path, probability); // add to candidates
+                // Take shortest path that we didn't come from if all are too long
+                if (nextPathCandidates.Count == 0)
+                {
+                    Debug.Log("######## OVERRIDE ######## Taking shortest way home from here.");
+                    List<KeyValuePair<Path, Node>> validPaths = new List<KeyValuePair<Path, Node>>();
+                    foreach (var path in currentNode.ConnectedPaths)
+                    {
+                        if (routePaths.Count > 0 && path.Key == routePaths.Last())
+                        {
+                            Debug.Log("Excluding path " + path.Key.Id + " because it's the path we came from.");
+                            continue;
+                        }
+                        if (chosenPaths.Where(x => x.Key == path.Key && x.Value == path.Value).Count() > 0) // Can't take the same path twice in the same direction
+                        {
+                            Debug.Log("Excluding path " + path.Key.Id + " because we already walked that path in the same direction.");
+                            continue;
+                        }
+                        if (chosenPaths.Where(x => x.Key == path.Key && (chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit || remainingLength > maxLengthDeviation + 5f)).Count() > 0) // Except for the first few, can't take a path twice (no matter what direction)
+                        {
+                            Debug.Log("Excluding path " + path.Key.Id + " because we already walked that path and it's not one of the first paths.");
+                            continue;
+                        }
+                        if (chosenPaths.Where(x => x.Value == path.Value && chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit).Count() > 0) // Except for the first few, can't visit the same node twice
+                        {
+                            Debug.Log("Excluding path " + path.Key.Id + " because it would lead to a node that we already visited (and it's not one of the first " + (numFirstPathsAllowedToRevisit + 1) + " nodes).");
+                            continue;
+                        }
+
+                        validPaths.Add(path);
+                    }
+
+                    if (validPaths.Count == 0) // We are in a pickle => Abort
+                    {
+                        routeIsInvalid = true;
+                        break;
+                    }
+
+                    chosenNextPath = validPaths.First(x => x.Value.MinLengthToEnd == validPaths.Min(y => y.Value.MinLengthToEnd));
+                }
+
+                // Else chose random one
+                else chosenNextPath = GetWeightedRandomElement(nextPathCandidates);
+
+                chosenPaths.Add(chosenNextPath);
+
+                // Apply path
+                routeNodes.Add(chosenNextPath.Value);
+                routePaths.Add(chosenNextPath.Key);
+
+                currentNode = chosenNextPath.Value;
+                remainingLength -= chosenNextPath.Key.Length;
+
+                Debug.Log(">>> " + counter + ": Added path " + chosenNextPath.Key.Id + " to route. Remaining length = " + remainingLength + ". We are at node " + currentNode.Id);
             }
 
-            // Chose next path
-            KeyValuePair<Path, Node> chosenNextPath;
+            if (routeIsInvalid) continue; // Try again
 
-            // Take shortest path that we didn't come from if all are too long
-            if (nextPathCandidates.Count == 0)
-            {
-                Debug.Log("######## OVERRIDE ######## Taking shortest way home from here.");
-                List<KeyValuePair<Path, Node>> validPaths = currentNode.ConnectedPaths.Where(x => routePaths.Count == 0 || x.Key != routePaths.Last()).ToList(); // all paths are valid here except the one we came from
-                chosenNextPath = validPaths.First(x => x.Value.MinLengthToEnd == validPaths.Min(y => y.Value.MinLengthToEnd));
-            }
+            route = new Route(routeNodes, routePaths);
 
-            // Else chose random one
-            else chosenNextPath = GetWeightedRandomElement(nextPathCandidates);
-
-            // Apply path
-            routeNodes.Add(chosenNextPath.Value);
-            routePaths.Add(chosenNextPath.Key);
-
-            currentNode = chosenNextPath.Value;
-            remainingLength -= chosenNextPath.Key.Length;
-
-            Debug.Log(">>> " + counter + ": Added path " + chosenNextPath.Key.Id + " to route. Remaining length = " + remainingLength + ". We are at node " + currentNode.Id);
+            Debug.Log("Generated route with length " + route.Length + ".");
         }
-
-        Route route = new Route(routeNodes, routePaths);
-
-        Debug.Log("Generated route with length " + route.Length + ".");
 
         return route;
     }
@@ -167,7 +240,7 @@ public class Main : MonoBehaviour
         HighlightedRoute = route;
         HighlightedRoute.Highlight(this);
 
-        RouteText.text = "Highlighted route has an estimated length of " + (int)Mathf.Round(HighlightedRoute.Length) + " minutes.";
+        RouteText.text = "Highlighted route has an estimated length of " + HighlightedRoute.GetLengthString() + ".";
     }
 
     private void UnhighlightRoute()
@@ -252,7 +325,7 @@ public class Main : MonoBehaviour
 
     #endregion
 
-    #region Edit Map
+    #region Modes
 
     private void Update()
     {
@@ -275,13 +348,13 @@ public class Main : MonoBehaviour
         switch (Mode)
         {
             case Mode.AddNode:
-                if(Input.GetMouseButtonDown(0)) AddNode();
+                if (Input.GetMouseButtonDown(0)) AddNode();
                 break;
 
             case Mode.AddPathStart:
-                if(Input.GetMouseButtonDown(0))
+                if (Input.GetMouseButtonDown(0))
                 {
-                    if(hoveredNode != null)
+                    if (hoveredNode != null)
                     {
                         CurrentPath = Instantiate(PathPrefab);
                         CurrentPath.Init(NextPathId++, hoveredNode);
@@ -291,9 +364,9 @@ public class Main : MonoBehaviour
                 break;
 
             case Mode.AddPath:
-                if(Input.GetMouseButtonDown(0))
+                if (Input.GetMouseButtonDown(0))
                 {
-                    if(hoveredNode != null && hoveredNode != CurrentPath.StartNode)
+                    if (hoveredNode != null && hoveredNode != CurrentPath.StartNode)
                     {
                         CurrentPath.End(hoveredNode);
                         Paths.Add(CurrentPath.Id, CurrentPath);
@@ -307,7 +380,7 @@ public class Main : MonoBehaviour
 
                     UnhighlightEverything();
                 }
-                if(Input.GetMouseButtonDown(1))
+                if (Input.GetMouseButtonDown(1))
                 {
                     RemoveCurrentPath();
                     SelectMode(Mode.AddPathStart);
@@ -348,6 +421,37 @@ public class Main : MonoBehaviour
                     }
                 }
                 break;
+
+            case Mode.SimulateRouteStart:
+                if (Input.GetMouseButtonDown(0))
+                {
+                    if (hoveredNode != null)
+                    {
+                        SimulatedRoute = new Route(new List<Node>() { hoveredNode }, new List<Path>());
+                        HighlightRoute(SimulatedRoute);
+                        SelectMode(Mode.SimulateRoute);
+                    }
+                }
+                break;
+
+            case Mode.SimulateRoute:
+                if (Input.GetMouseButtonDown(0))
+                {
+                    if (hoveredNode != null && hoveredNode != SimulatedRoute.Nodes.Last())
+                    {
+                        Path path = SimulatedRoute.Nodes.Last().ConnectedPaths.FirstOrDefault(x => x.Value == hoveredNode).Key;
+                        if (path != null)
+                        {
+                            SimulatedRoute.AddPath(path, hoveredNode);
+                            HighlightRoute(SimulatedRoute);
+                        }
+                    }
+                }
+                if(Input.GetMouseButtonDown(1))
+                {
+                    SelectMode(Mode.SimulateRouteStart);
+                }
+                break;
         }
     }
 
@@ -385,9 +489,16 @@ public class Main : MonoBehaviour
         UnhighlightEverything();
     }
 
+    private void RemoveSimulatedRoute()
+    {
+        UnhighlightRoute();
+        SimulatedRoute = null;
+    }
+
     public void SelectMode(Mode mode)
     {
         if (CurrentPath != null && mode != Mode.AddPath) RemoveCurrentPath();
+        if (SimulatedRoute != null && mode != Mode.SimulateRoute) RemoveSimulatedRoute();
 
         GetButtonForMode(Mode).Unselect();
         Mode = mode;
@@ -407,6 +518,8 @@ public class Main : MonoBehaviour
             Mode.RemovePath => RemovePathButton,
             Mode.GenerateRouteStart => GenerateRouteButton,
             Mode.GenerateRouteEnd => GenerateRouteButton,
+            Mode.SimulateRouteStart => SimulateRouteButton,
+            Mode.SimulateRoute => SimulateRouteButton,
             _ => throw new System.Exception("Mode " + mode.ToString() + " not handled.")
         };
     }
@@ -423,24 +536,13 @@ public class Main : MonoBehaviour
             Mode.RemovePath => "Click on a path to remove it.",
             Mode.GenerateRouteStart => "Click on a node that will be the start point of the route.",
             Mode.GenerateRouteEnd => "Click on a node that will be the end point of the route.",
+            Mode.SimulateRouteStart => "Click on a node where the route starts.",
+            Mode.SimulateRoute => "Click on a node connected to the previous node to continue the route.\nRightclick to remove current route.",
             _ => throw new System.Exception("Mode " + mode.ToString() + " not handled.")
         };
     }
 
     #endregion
-
-    private void ShowMapUrls()
-    {
-        int mapSizeX = 2;
-        int mapSizeY = 2;
-        for (int y = -mapSizeY; y <= mapSizeY; y++)
-        {
-            for (int x = -mapSizeX; x <= mapSizeX; x++)
-            {
-                Debug.Log(x + "/" + y + ":                           " + GoogleMapUrlCreator.GetUrlForSector(x, y));
-            }
-        }
-    }
 
     private void Clear()
     {

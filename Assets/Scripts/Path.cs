@@ -16,7 +16,7 @@ public class Path : MonoBehaviour
     public List<Vector3> Points { get; private set; }
 
     public float Length;
-    private const float WORLD_DISTANCE_TO_LENGTH_FACTOR = 0.2f;
+    private const float WORLD_DISTANCE_TO_LENGTH_FACTOR = 0.17f;
 
     public LineRenderer Line;
     private Color PathVisualizationColor = new Color(0.8f, 0f, 0f, 1f);

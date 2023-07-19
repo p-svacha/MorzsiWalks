@@ -12,4 +12,6 @@ public enum Mode
     RemovePath,
     GenerateRouteStart,
     GenerateRouteEnd,
+    SimulateRouteStart,
+    SimulateRoute
 }
