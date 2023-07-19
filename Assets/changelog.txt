@@ -14,3 +14,10 @@ Version 1.2
 - Added path priorities (to nudge route generation to prefer/avoid certain paths)
 - Added path direction types (one-way paths)
 - Improved route generation UX
+
+Version 1.3
+----------------------
+- Added shortest distances to savefile to drastically reduce load times
+- Added button to manually recalculate shortest distances
+- Fixed infinite loops on several edge cases
+- Fixed visual bug on loading/saving when a route was highlighted

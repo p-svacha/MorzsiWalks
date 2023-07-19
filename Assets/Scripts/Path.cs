@@ -346,13 +346,13 @@ public class Path : MonoBehaviour
 
     #region Load / Save
 
-    public void Init(Main main, PathData data)
+    public void Init(PathData data)
     {
         Id = data.Id;
         StartNodeId = data.StartNodeId;
-        StartNode = main.Nodes[data.StartNodeId];
+        StartNode = Main.Singleton.Nodes[data.StartNodeId];
         EndNodeId = data.EndNodeId;
-        EndNode = main.Nodes[data.EndNodeId];
+        EndNode = Main.Singleton.Nodes[data.EndNodeId];
         Direction = data.Direction;
         Priority = data.Priority;
         Points = new List<Vector3>();

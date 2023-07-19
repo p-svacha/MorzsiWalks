@@ -29,6 +29,7 @@ public class Main : MonoBehaviour
     public MenuButton SimulateRouteButton;
     public MenuButton UnhighlightRouteButton;
 
+    public MenuButton RecalculateDistancesButton;
     public MenuButton SaveMapButton;
 
     [Header("Colors")]
@@ -58,6 +59,7 @@ public class Main : MonoBehaviour
     private Node CurrentRouteStart;
 
     private const float DESIRED_ROUTE_LENGTH_MAX_DEVIATION = 0.3f; // % value how much the length of a generated route may deviate from the desired length (i.e. 30% on 20 minutes would accept 14-26 minutes)
+    private const int MAX_ROUTE_GEN_ATTEMPTS = 2000;
 
     public static Main Singleton;
 
@@ -77,8 +79,9 @@ public class Main : MonoBehaviour
         SimulateRouteButton.Button.onClick.AddListener(() => SelectMode(Mode.SimulateRouteStart));
         UnhighlightRouteButton.Button.onClick.AddListener(UnhighlightEverything);
 
+        RecalculateDistancesButton.Button.onClick.AddListener(CalculateShortestPaths);
         SaveMapButton.Button.onClick.AddListener(() => SaveMap(CurrentMap));
-        
+
 
         Nodes = new Dictionary<int, Node>();
         Paths = new Dictionary<int, Path>();
@@ -99,7 +102,8 @@ public class Main : MonoBehaviour
         Route route = GenerateRoute(start, end, targetLength);
 
         // Highlight route
-        HighlightRoute(route);
+        if (route == null) RouteText.text = "No route that fits the criteria has been found.";
+        else HighlightRoute(route);
     }
 
     private Route GenerateRoute(Node start, Node end, int targetLength)
@@ -112,11 +116,12 @@ public class Main : MonoBehaviour
         int numFirstPathsAllowedToRevisit = 2 + (targetLength / 30);
 
         // Calculate shortest route to start for every node
-        foreach (Node node in Nodes.Values) node.MinLengthToEnd = node.ShortestPaths[end];
+        foreach (Node node in Nodes.Values) node.MinLengthToEnd = node.ShortestDistances[end];
 
         // Generate route
         Route route = null;
 
+        int attemptCounter = 0;
         while (route == null || (start.MinLengthToEnd < maxLength && (route.Length < minLength || route.Length > maxLength)))
         {
             List<Node> routeNodes = new List<Node>();
@@ -124,14 +129,14 @@ public class Main : MonoBehaviour
             float remainingLength = targetLength;
             Node currentNode = start;
             routeNodes.Add(currentNode);
-            int counter = 0;
+            int pathCounter = 0;
             bool routeIsInvalid = false;
 
             List<KeyValuePair<Path, Node>> chosenPaths = new List<KeyValuePair<Path, Node>>();
 
-            while ((routeNodes.Last() != end || routeNodes.Count <= 1) && counter < 200)
+            while ((routeNodes.Last() != end || routeNodes.Count <= 1) && pathCounter < 200)
             {
-                counter++;
+                pathCounter++;
 
                 // Identify candidates and their probabilities for the next path
                 Dictionary<KeyValuePair<Path, Node>, float> nextPathCandidates = new Dictionary<KeyValuePair<Path, Node>, float>();
@@ -228,9 +233,16 @@ public class Main : MonoBehaviour
                 currentNode = chosenNextPath.Value;
                 remainingLength -= chosenNextPath.Key.Length;
 
-                Debug.Log(">>> " + counter + ": Added path " + chosenNextPath.Key.Id + " to route. Remaining length = " + remainingLength + ". We are at node " + currentNode.Id);
+                Debug.Log(">>> " + pathCounter + ": Added path " + chosenNextPath.Key.Id + " to route. Remaining length = " + remainingLength + ". We are at node " + currentNode.Id);
             }
 
+            attemptCounter++;
+            if(attemptCounter >= MAX_ROUTE_GEN_ATTEMPTS)
+            {
+                Debug.Log("+++++++ Aborting because no route has been found after " + MAX_ROUTE_GEN_ATTEMPTS + " tries. +++++++");
+                route = null;
+                break;
+            }
             if (routeIsInvalid) continue; // Try again
 
             route = new Route(routeNodes, routePaths);
@@ -238,6 +250,7 @@ public class Main : MonoBehaviour
             Debug.Log("Generated route with length " + route.Length + ".");
         }
 
+        Debug.Log("Found fitting route after " + attemptCounter + " attempts.");
         return route;
     }
 
@@ -289,8 +302,8 @@ public class Main : MonoBehaviour
         // Initialize the shortest paths dictionary for each node
         foreach (Node node in Nodes.Values)
         {
-            node.ShortestPaths = new Dictionary<Node, float>();
-            node.ShortestPaths[node] = 0; // The distance to itself is 0
+            node.ShortestDistances = new Dictionary<Node, float>();
+            node.ShortestDistances[node] = 0; // The distance to itself is 0
         }
 
         // Initialize the shortest paths dictionary for each connected node
@@ -300,8 +313,8 @@ public class Main : MonoBehaviour
             Node endNode = path.EndNode;
             float length = path.Length;
 
-            startNode.ShortestPaths[endNode] = length;
-            endNode.ShortestPaths[startNode] = length;
+            startNode.ShortestDistances[endNode] = length;
+            endNode.ShortestDistances[startNode] = length;
         }
 
         // Perform the Floyd-Warshall algorithm
@@ -317,14 +330,14 @@ public class Main : MonoBehaviour
                     Node nodeK = Nodes.Values.ToList()[k];
 
                     // Check if a path exists from i to k
-                    if (nodeI.ShortestPaths.TryGetValue(nodeK, out distanceIK))
+                    if (nodeI.ShortestDistances.TryGetValue(nodeK, out distanceIK))
                     {
                         // Check if a path exists from k to j
-                        if (nodeK.ShortestPaths.TryGetValue(nodeJ, out distanceKJ))
+                        if (nodeK.ShortestDistances.TryGetValue(nodeJ, out distanceKJ))
                         {
                             float currentDistance;
                             // Calculate the distance from i to j via k
-                            if (!nodeI.ShortestPaths.TryGetValue(nodeJ, out currentDistance))
+                            if (!nodeI.ShortestDistances.TryGetValue(nodeJ, out currentDistance))
                             {
                                 currentDistance = float.PositiveInfinity;
                             }
@@ -332,7 +345,7 @@ public class Main : MonoBehaviour
                             float newDistance = distanceIK + distanceKJ;
                             if (newDistance < currentDistance)
                             {
-                                nodeI.ShortestPaths[nodeJ] = newDistance;
+                                nodeI.ShortestDistances[nodeJ] = newDistance;
                             }
                         }
                     }
@@ -595,7 +608,7 @@ public class Main : MonoBehaviour
             Mode.ChangePathDirection => "Click on a path to change which directions you are allowed to traverse it.",
             Mode.RemoveNode => "Click on a node with no connections to remove it.",
             Mode.RemovePath => "Click on a path to remove it.",
-            Mode.GenerateRouteStart => "Click on a node that will be the start point of the route.\nRightclick to remove previous route.",
+            Mode.GenerateRouteStart => "Click on a node that will be the start point of the route.",
             Mode.GenerateRouteEnd => "Click on a node that will be the end point of the route.\nRightclick to abort.",
             Mode.SimulateRouteStart => "Click on a node where the route starts.",
             Mode.SimulateRoute => "Click on a node connected to the previous node to continue the route.\nRightclick to remove current route.",
@@ -610,7 +623,12 @@ public class Main : MonoBehaviour
     private void Clear()
     {
         foreach (Node n in Nodes.Values) Destroy(n.gameObject);
-        foreach (Path p in Paths.Values) Destroy(p.gameObject);
+        foreach (Path p in Paths.Values)
+        {
+            if (p.ArrowheadToEnd != null) Destroy(p.ArrowheadToEnd.gameObject);
+            if (p.ArrowheadToStart != null) Destroy(p.ArrowheadToStart.gameObject);
+            Destroy(p.gameObject);
+        }
 
         Nodes.Clear();
         Paths.Clear();
@@ -628,6 +646,8 @@ public class Main : MonoBehaviour
             Nodes.Add(newNode.Id, newNode);
         }
 
+
+
         // Load paths
         foreach(PathData data in mapData.Paths)
         {
@@ -635,17 +655,20 @@ public class Main : MonoBehaviour
             if (data.StartNodeId == data.EndNodeId && data.PointsX.Count == 0) continue;
 
             Path newPath = Instantiate(PathPrefab);
-            newPath.Init(this, data);
+            newPath.Init(data);
             Paths.Add(newPath.Id, newPath);
         }
 
+        // Init node distances
+        foreach (NodeData data in mapData.Nodes) Nodes[data.Id].InitLate(data);
+
+        // Get next ids
         NextNodeId = Nodes.Keys.Count == 0 ? 1 : Nodes.Keys.Max() + 1;
         NextPathId = Paths.Keys.Count == 0 ? 1 : Paths.Keys.Max() + 1;
 
         CurrentMap = mapData.Name;
 
         UnhighlightEverything();
-        CalculateShortestPaths();
     }
 
     private void SaveMap(string saveName)
