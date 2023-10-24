@@ -91,6 +91,11 @@ public class Main : MonoBehaviour
         SelectMode(Mode.View);
     }
 
+    public void ExitProgram()
+    {
+        Application.Quit();    
+    }
+
     #region Route Generation
 
     private void GenerateAndHighlightRoute(Node start, Node end, int targetLength)
@@ -157,7 +162,7 @@ public class Main : MonoBehaviour
                         Debug.Log("Excluding path " + path.Key.Id + " because we already walked that path (and it's not one of the first " + numFirstPathsAllowedToRevisit + " paths).");
                         continue;
                     }
-                    if (chosenPaths.Where(x => x.Value == path.Value && chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit).Count() > 0) // Except for the first few, can't visit the same node twice
+                    if (chosenPaths.Where(x => x.Value == path.Value && (chosenPaths.IndexOf(x) >= numFirstPathsAllowedToRevisit || remainingLength > maxLengthDeviation + 3f)).Count() > 0) // Except for the first few, can't visit the same node twice
                     {
                         Debug.Log("Excluding path " + path.Key.Id + " because it would lead to a node that we already visited (and it's not one of the first " + (numFirstPathsAllowedToRevisit + 1) + " nodes).");
                         continue;

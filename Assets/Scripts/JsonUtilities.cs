@@ -7,19 +7,19 @@ using UnityEngine;
 
 public static class JsonUtilities
 {
-    private const string SAVE_GAME_PATH = "Assets/Data/";
+    private static string DATA_FILES_PATH = Application.streamingAssetsPath + "/MapData/";
 
     public static void SaveMap(MapData data)
     {
         string json = JsonConvert.SerializeObject(data, Formatting.Indented);
-        string path = SAVE_GAME_PATH + data.Name + ".json";
+        string path = DATA_FILES_PATH + data.Name + ".json";
         File.WriteAllText(path, json);
         Debug.Log("Successfully saved " + data.Name + " data:\n\n" + json);
     }
 
     public static MapData LoadGame(string name)
     {
-        string jsonFilePath = SAVE_GAME_PATH + name + ".json";
+        string jsonFilePath = DATA_FILES_PATH + name + ".json";
         MapData data = null;
 
         using (StreamReader r = new StreamReader(jsonFilePath))

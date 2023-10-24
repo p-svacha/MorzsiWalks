@@ -1,14 +1,22 @@
-öv routes (gestrichelt, higher/custom? length, can be turned on/off in route gen)
+Features:
+- öv routes (gestrichelt, higher/custom? length, can be turned on/off in route gen)
+- Nodes can be marked as picknick spots
+	- route gen has additional checkmark "include pickick?"
+	- paths to/from picknick-spots can be walked twice instead of once (not same direction)
+- Add "areas" that paths can be added/removed from
+	- can exclude areas from route generation (i.e. schwarzwark after 19:00)
+- Add "via" possibility to include a specific path or node in route gen.
+- Add future value approximation with graph that shows all possible path priorities for the next x metres and then makes it into one average value.
+	- make sure only valid paths are considered (no turning arounde etc.)
+	- generalize some cangothere functions with routes as input
+- make it possible to click on paths when simulating route
 
-!add parameters to program to edit
+UI:
+Add parameters to route generation
  - % deviation allowed
  - num first paths that are allowed to be visited twice
  - speed modifier
 
-last visited (save last walked routes and reduce their probability)
+ add tooltips to all buttons
 
-expand map 
-- east side of birs in south
-- missing blob in merian gärten
-- zeughaus area
-- hundestrand
+port to android

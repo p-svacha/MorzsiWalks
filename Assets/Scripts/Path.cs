@@ -20,7 +20,7 @@ public class Path : MonoBehaviour
     public PathPriority Priority;
 
     public float Length;
-    private const float WORLD_DISTANCE_TO_LENGTH_FACTOR = 0.142f;
+    private const float WORLD_DISTANCE_TO_LENGTH_FACTOR = 0.166f;
 
     public LineRenderer Line;
     private float PathVisualizationWidth = 0.3f;
